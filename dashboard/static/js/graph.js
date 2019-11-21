@@ -7,15 +7,23 @@ function makeGraphs(error, salaryData) {
     
     salaryData.forEach(function(d){
         d.salary = parseInt(d.salary);
+        d.yrs_service = parseInt(d["yrs.service"]);
     })
     
     show_discipline_selector(ndx);
+    
+    show_percent_that_are_professors(ndx, "Female", "#percent-of-women-professors");
+    show_percent_that_are_professors(ndx, "Male", "#percent-of-men-professors");
+    
     show_gender_balance(ndx);
     show_average_salary(ndx);
     show_rank_distribution(ndx);
     
+    show_service_to_salary_correlation(ndx);
+    
     dc.renderAll();
 }
+
 
 function show_discipline_selector(ndx) {
     var dim = ndx.dimension(dc.pluck('discipline'));
@@ -24,6 +32,44 @@ function show_discipline_selector(ndx) {
     dc.selectMenu("#discipline-selector")
         .dimension(dim)
         .group(group);
+}
+
+
+function show_percent_that_are_professors(ndx, gender, element) {
+    var percentageThatAreProf = ndx.groupAll().reduce(
+        function(p, v) {
+            if (v.sex === gender) {
+                p.count++;
+                if(v.rank === "Prof") {
+                    p.are_prof++;
+                }
+            }
+            return p;
+        },
+        function(p, v) {
+            if (v.sex === gender) {
+                p.count--;
+                if(v.rank === "Prof") {
+                    p.are_prof--;
+                }
+            }
+            return p;
+        },
+        function() {
+            return {count: 0, are_prof: 0};    
+        },
+    );
+    
+    dc.numberDisplay(element)
+        .formatNumber(d3.format(".2%"))
+        .valueAccessor(function (d) {
+            if (d.count == 0) {
+                return 0;
+            } else {
+                return (d.are_prof / d.count);
+            }
+        })
+        .group(percentageThatAreProf)
 }
 
 
@@ -85,80 +131,44 @@ function show_average_salary(ndx) {
         .transitionDuration(500)
         .x(d3.scale.ordinal())
         .xUnits(dc.units.ordinal)
+        .elasticY(true)
         .xAxisLabel("Gender")
-        .yAxis().ticks(4);   
+        .yAxis().ticks(4);
 }
 
-//Display the distribution of the rank / position held by men and women 
 
-    //the var profByGender block of code is a custom reducer specifically for professors and has been written inside the function, not outside as in Display average salary of men and women code block 
-    //rather than duplicate the code for each rank we can create a function and pass in the rank as a dimension, hence now commenting out this code
-    /*  
-    function show_rank_distribution(ndx) {
-    var dim = ndx.dimension(dc.pluck('sex'));
-    var profByGender = dim.group().reduce(
-            //this is our add
-            function(p, v) {
-                p.total++;
-                if(v.rank == "Prof") {
-                    p.match++;
-                }
-                return p;
-            },
-            //this is our remove
-            function(p, v) {
-                p.total--;
-                if(v.rank == "Prof") {
-                    p.match--;
-                }
-                return p;    
-            },
-            //this is our initialise
-            function() {
-                return{total:0, match:0};
-            }
-        );
-    */
 function show_rank_distribution(ndx) {
     
-    function rankByGender (dimension, rank) {
+    function rankByGender(dimension, rank) {
         return dimension.group().reduce(
-            //this is our add
-            function(p, v) {
+            function (p, v) {
                 p.total++;
                 if(v.rank == rank) {
                     p.match++;
                 }
                 return p;
             },
-            //this is our remove
-            function(p, v) {
+            function (p, v) {
                 p.total--;
                 if(v.rank == rank) {
                     p.match--;
                 }
-                return p;    
+                return p;
             },
-            //this is our initialise
-            function() {
-                return {total:0, match:0};
+            function () {
+                return {total: 0, match: 0};
             }
         );
     }
     
-    var dim = ndx.dimension(dc.pluck('sex'));
-    
+    var dim = ndx.dimension(dc.pluck("sex"));
     var profByGender = rankByGender(dim, "Prof");
     var asstProfByGender = rankByGender(dim, "AsstProf");
     var assocProfByGender = rankByGender(dim, "AssocProf");
-
-    console.log(profByGender.all());
-
+    
     dc.barChart("#rank-distribution")
         .width(400)
         .height(300)
-        .margins({top: 10, right: 100, bottom: 30, left: 30})
-        .legend(dc.legend().x(320).y(20).itemHeight(15).gap(5))
         .dimension(dim)
         .group(profByGender, "Prof")
         .stack(asstProfByGender, "Asst Prof")
@@ -169,11 +179,45 @@ function show_rank_distribution(ndx) {
             } else {
                 return 0;
             }
-        })      
+        })
         .x(d3.scale.ordinal())
         .xUnits(dc.units.ordinal)
+        .legend(dc.legend().x(320).y(20).itemHeight(15).gap(5))
+        .margins({top: 10, right: 100, bottom: 30, left: 30});
+}
 
-        .xAxisLabel("Gender")
-        .yAxis().ticks(20);
-      
+
+function show_service_to_salary_correlation(ndx) {
+    
+    var genderColors = d3.scale.ordinal()
+        .domain(["Female", "Male"])
+        .range(["pink", "blue"]);
+    
+    var eDim = ndx.dimension(dc.pluck("yrs_service"));
+    var experienceDim = ndx.dimension(function(d) {
+       return [d.yrs_service, d.salary, d.rank, d.sex];
+    });
+    var experienceSalaryGroup = experienceDim.group();
+    
+    var minExperience = eDim.bottom(1)[0].yrs_service;
+    var maxExperience = eDim.top(1)[0].yrs_service;
+    
+    dc.scatterPlot("#service-salary")
+        .width(800)
+        .height(400)
+        .x(d3.scale.linear().domain([minExperience, maxExperience]))
+        .brushOn(false)
+        .symbolSize(8)
+        .clipPadding(10)
+        .xAxisLabel("Years Of Service")
+        .title(function(d) {
+            return d.key[2] + " earned " + d.key[1];
+        })
+        .colorAccessor(function (d) {
+            return d.key[3];
+        })
+        .colors(genderColors)
+        .dimension(experienceDim)
+        .group(experienceSalaryGroup)
+        .margins({top: 10, right: 50, bottom: 75, left: 75});
 }
